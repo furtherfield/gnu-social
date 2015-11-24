@@ -1,13 +1,23 @@
-<!-- Copyright 2008-2010 StatusNet Inc. and contributors. -->
-<!-- Document licensed under Creative Commons Attribution 3.0 Unported. See -->
-<!-- https://creativecommons.org/licenses/by/3.0/ for details. -->
+<!-- Copyright 2015 Furtherfield -->
+<!-- Document licensed under Creative Commons Attribution 4.0. See -->
+<!-- https://creativecommons.org/licenses/by/4.0/ for details. -->
 
-%%site.name%% is a
-social network based on the Free Software [GNU social](https://git.gnu.io/gnu/gnu-social) tool.
+Neterarti is a social network for net art play, based on the Free Software [GNU social](https://git.gnu.io/gnu/gnu-social) tool.
 
-If you [register](%%action.register%%) for an account,
-you can post small (%%site.textlimit%% chars or less) text notices
-about yourself, where you are, what you're doing, or practically
-anything you want. You can also subscribe to the notices of your
-friends, or other people you're interested in, and follow them on the
-Web or in an [RSS](https://en.wikipedia.org/wiki/RSS) feed.
+It is inspired by [conversations](http://furtherfield.org/netbehaviour/interview-geert-lovink) at Furtherfield's Netbehaviour about email discussion lists and the lack of alternative platforms to Facebook and Twitter.
+
+We hope you will sign up and experiment with us to find out more about its suitability as a platform for exploring arts technology and social change.
+
+We will host it until February 2016 and then see what happens.
+
+If you register for an account, you can post small (1000 chars or less) text notices about yourself, where you are, what you're doing, or practically anything you want.
+
+You can also subscribe to the notices of your friends, or other people you're interested in, and follow them on the Web or in an RSS feed. Since GNU social is a federated social network, you can follow (and be followed by) anyone on any other GNU social server.
+
+What can you post? Whatever you want as long as you're not mean to your fellow neterartists. Art, poetry, performance, criticism, discussions of things here or elsewhere. neterarti is what we make of it so let's make something wonderful.
+
+Who should you follow? Whoever you like. You can get together in groups, chat in direct messages (if you follow each other), and post surveys to find out more about the people you are talking to.
+
+You can connect to neterarti via this web interface or via any computer or mobile device software that supports GNU social (or its predecessor, StatusNet).
+
+&mdash; The Furtherfield Crew
