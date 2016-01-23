@@ -28,11 +28,7 @@
  * @link      http://status.net/
  */
 
-if (!defined('STATUSNET')) {
-    // This check helps protect against security problems;
-    // your code file can't be executed directly from the web.
-    exit(1);
-}
+if (!defined('GNUSOCIAL')) { exit(1); }
 
 /**
  * Event plugin
@@ -67,6 +63,12 @@ class EventPlugin extends MicroAppPlugin
         return true;
     }
 
+    public function onBeforePluginCheckSchema()
+    {
+        RSVP::beforeSchemaUpdate();
+        return true;
+    }
+
     /**
      * Map URLs to actions
      *
@@ -90,6 +92,10 @@ class EventPlugin extends MicroAppPlugin
                     array('id' => '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'));
         $m->connect('main/event/updatetimes',
                     array('action' => 'timelist'));
+
+        $m->connect(':nickname/events',
+                    array('action' => 'events'),
+                    array('nickname' => Nickname::DISPLAY_FMT));
         return true;
     }
 
@@ -115,7 +121,11 @@ class EventPlugin extends MicroAppPlugin
     }
 
     function types() {
-        return array(Happening::OBJECT_TYPE,
+        return array(Happening::OBJECT_TYPE);
+    }
+
+    function verbs() {
+        return array(ActivityVerb::POST,
                      RSVP::POSITIVE,
                      RSVP::NEGATIVE,
                      RSVP::POSSIBLE);
@@ -179,8 +189,6 @@ class EventPlugin extends MicroAppPlugin
             $url = $url_object->item(0)->nodeValue;
         }
 
-        $notice = null;
-
         switch ($activity->verb) {
         case ActivityVerb::POST:
         	// FIXME: get startTime, endTime, location and URL
@@ -196,20 +204,37 @@ class EventPlugin extends MicroAppPlugin
         case RSVP::POSITIVE:
         case RSVP::NEGATIVE:
         case RSVP::POSSIBLE:
+            return Notice::saveActivity($activity, $actor, $options);
+            break;
+        default:
+            // TRANS: Exception thrown when event plugin comes across a undefined verb.
+            throw new Exception(_m('Unknown verb for events.'));
+        }
+    }
+
+    protected function saveObjectFromActivity(Activity $activity, Notice $stored, array $options=array())
+    {
+        $happeningObj = $activity->objects[0];
+
+        switch ($activity->verb) {
+        case RSVP::POSITIVE:
+        case RSVP::NEGATIVE:
+        case RSVP::POSSIBLE:
             $happening = Happening::getKV('uri', $happeningObj->id);
             if (empty($happening)) {
                 // FIXME: save the event
                 // TRANS: Exception thrown when trying to RSVP for an unknown event.
                 throw new Exception(_m('RSVP for unknown event.'));
             }
-            $notice = RSVP::saveNew($actor, $happening, $activity->verb, $options);
+            $object = RSVP::saveNewFromNotice($stored, $happening, $activity->verb);
+            // Our data model expects this
+            $stored->object_type = $activity->verb;
+            return $object;
             break;
         default:
-            // TRANS: Exception thrown when event plugin comes across a undefined verb.
-            throw new Exception(_m('Unknown verb for events.'));
+            common_log(LOG_ERR, 'Unknown verb for events.');
+            return NULL;
         }
-
-        return $notice;
     }
 
     /**
@@ -515,5 +540,15 @@ class EventPlugin extends MicroAppPlugin
         $out->elementStart('div', 'rsvp');
         $out->raw($rsvp->asHTML());
         $out->elementEnd('div');
+    }
+
+    function onEndPersonalGroupNav(Menu $menu, Profile $target, Profile $scoped=null)
+    {
+        $menu->menuItem(common_local_url('events', array('nickname' => $target->getNickname())),
+                          // TRANS: Menu item in sample plugin.
+                          _m('Happenings'),
+                          // TRANS: Menu item title in sample plugin.
+                          _m('A list of your events'), false, 'nav_timeline_events');
+        return true;
     }
 }

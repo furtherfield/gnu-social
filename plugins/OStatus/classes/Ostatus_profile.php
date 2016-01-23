@@ -376,13 +376,19 @@ class Ostatus_profile extends Managed_DataObject
     public function notifyDeferred($entry, $actor)
     {
         if ($this->salmonuri) {
-            $data = array('salmonuri' => $this->salmonuri,
-                          'entry' => $this->notifyPrepXml($entry),
-                          'actor' => $actor->getID(),
-                          'target' => $this->localProfile()->getID());
+            try {
+                common_debug("OSTATUS: user {$actor->getNickname()} ({$actor->getID()}) wants to ping {$this->localProfile()->getNickname()} on {$this->salmonuri}");
+                $data = array('salmonuri' => $this->salmonuri,
+                              'entry' => $this->notifyPrepXml($entry),
+                              'actor' => $actor->getID(),
+                              'target' => $this->localProfile()->getID());
 
-            $qm = QueueManager::get();
-            return $qm->enqueue($data, 'salmon');
+                $qm = QueueManager::get();
+                return $qm->enqueue($data, 'salmon');
+            } catch (Exception $e) {
+                common_log(LOG_ERR, 'OSTATUS: Something went wrong when creating a Salmon slap: '._ve($e->getMessage()));
+                return false;
+            }
         }
 
         return false;
@@ -444,10 +450,7 @@ class Ostatus_profile extends Managed_DataObject
             return;
         }
 
-        for ($i = 0; $i < $entries->length; $i++) {
-            $entry = $entries->item($i);
-            $this->processEntry($entry, $feed, $source);
-        }
+        $this->processEntries($entries, $feed, $source);
     }
 
     public function processRssFeed(DOMElement $rss, $source)
@@ -465,9 +468,21 @@ class Ostatus_profile extends Managed_DataObject
 
         $items = $channel->getElementsByTagName('item');
 
-        for ($i = 0; $i < $items->length; $i++) {
-            $item = $items->item($i);
-            $this->processEntry($item, $channel, $source);
+        $this->processEntries($items, $channel, $source);
+    }
+
+    public function processEntries(DOMNodeList $entries, DOMElement $feed, $source)
+    {
+        for ($i = 0; $i < $entries->length; $i++) {
+            $entry = $entries->item($i);
+            try {
+                $this->processEntry($entry, $feed, $source);
+            } catch (AlreadyFulfilledException $e) {
+                common_debug('We already had this entry: '.$e->getMessage());
+            } catch (ServerException $e) {
+                // FIXME: This should be UnknownUriException and the ActivityUtils:: findLocalObject should only test one URI
+                common_log(LOG_ERR, 'Entry threw exception while processing a feed from '.$source.': '.$e->getMessage());
+            }
         }
     }
 
@@ -480,14 +495,14 @@ class Ostatus_profile extends Managed_DataObject
      *
      * @return Notice Notice representing the new (or existing) activity
      */
-    public function processEntry($entry, $feed, $source)
+    public function processEntry(DOMElement $entry, DOMElement $feed, $source)
     {
         $activity = new Activity($entry, $feed);
         return $this->processActivity($activity, $source);
     }
 
     // TODO: Make this throw an exception
-    public function processActivity($activity, $source)
+    public function processActivity(Activity $activity, $source)
     {
         $notice = null;
 
@@ -635,14 +650,21 @@ class Ostatus_profile extends Managed_DataObject
             }
         }
 
-        // Try to get some hCard data
+        if (in_array(
+            preg_replace('/\s*;.*$/', '', $response->getHeader('Content-Type')),
+            array('application/rss+xml', 'application/atom+xml', 'application/xml', 'text/xml'))
+        ) {
+            $hints['feedurl'] = $response->getUrl();
+        } else {
+            // Try to get some hCard data
 
-        $body = $response->getBody();
+            $body = $response->getBody();
 
-        $hcardHints = DiscoveryHints::hcardHints($body, $finalUrl);
+            $hcardHints = DiscoveryHints::hcardHints($body, $finalUrl);
 
-        if (!empty($hcardHints)) {
-            $hints = array_merge($hints, $hcardHints);
+            if (!empty($hcardHints)) {
+                $hints = array_merge($hints, $hcardHints);
+            }
         }
 
         // Check if they've got an LRDD header

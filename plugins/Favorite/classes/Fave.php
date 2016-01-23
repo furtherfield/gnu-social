@@ -63,7 +63,7 @@ class Fave extends Managed_DataObject
         //        notice's nickname and %3$s is the content of the favorited notice.)
         $act->content = sprintf(_('%1$s favorited something by %2$s: %3$s'),
                                 $actor->getNickname(), $target->getProfile()->getNickname(),
-                                $target->rendered ?: $target->content);
+                                $target->getRendered());
         $act->actor   = $actor->asActivityObject();
         $act->target  = $target->asActivityObject();
         $act->objects = array(clone($act->target));
@@ -114,23 +114,40 @@ class Fave extends Managed_DataObject
 
     public function delete($useWhere=false)
     {
-        $profile = Profile::getKV('id', $this->user_id);
-        $notice  = Notice::getKV('id', $this->notice_id);
-
         $result = null;
 
-        if (Event::handle('StartDisfavorNotice', array($profile, $notice, &$result))) {
+        try {
+            $profile = $this->getActor();
+            $notice  = $this->getTarget();
 
-            $result = parent::delete($useWhere);
+            if (Event::handle('StartDisfavorNotice', array($profile, $notice, &$result))) {
 
-            self::blowCacheForProfileId($this->user_id);
-            self::blowCacheForNoticeId($this->notice_id);
-            self::blow('popular');
+                $result = parent::delete($useWhere);
 
-            if ($result) {
-                Event::handle('EndDisfavorNotice', array($profile, $notice));
+                if ($result !== false) {
+                    Event::handle('EndDisfavorNotice', array($profile, $notice));
+                }
             }
+
+        } catch (NoResultException $e) {
+            // In case there's some inconsistency where the profile or notice was deleted without losing the fave db entry
+            common_log(LOG_INFO, '"'.get_class($e->obj).'" with id=='.var_export($e->obj->id, true).' object not found when deleting favorite, ignoring...');
+        } catch (EmptyIdException $e) {
+            // Some buggy instances of GNU social have had favroites with notice id==0 stored in the database
+            common_log(LOG_INFO, '"'.get_class($e->obj).'"object had empty id deleting favorite, ignoring...');
         }
+
+        // If we catch an exception above, then $result===null because parent::delete only returns an int>=0 or boolean false
+        if (is_null($result)) {
+            // Delete it without the event, as something is wrong and we don't want it anyway.
+            $result = parent::delete($useWhere);
+        }
+
+        // Err, apparently we can reference $this->user_id after parent::delete,
+        // I guess it's safe because this is the order it was before!
+        self::blowCacheForProfileId($this->user_id);
+        self::blowCacheForNoticeId($this->notice_id);
+        self::blow('popular');
 
         return $result;
     }
@@ -169,7 +186,7 @@ class Fave extends Managed_DataObject
         //        notice's nickname and %3$s is the content of the favorited notice.)
         $act->content = sprintf(_('%1$s favorited something by %2$s: %3$s'),
                                 $actor->getNickname(), $target->getProfile()->getNickname(),
-                                $target->rendered ?: $target->content);
+                                $target->getRendered());
 
         $act->actor     = $actor->asActivityObject();
         $act->target    = $target->asActivityObject();
@@ -326,7 +343,7 @@ class Fave extends Managed_DataObject
         $actobj->objects = array(clone($actobj->target));
         $actobj->verb = ActivityVerb::FAVORITE;
         $actobj->title = ActivityUtils::verbToTitle($actobj->verb);
-        $actobj->content = $this->getTarget()->rendered ?: $this->getTarget()->content;
+        $actobj->content = $this->getTarget()->getRendered();
         return $actobj;
     }
 
@@ -336,6 +353,8 @@ class Fave extends Managed_DataObject
      */
     static public function parseActivityObject(ActivityObject $actobj, Notice $stored)
     {
+        // throws exception if nothing was found, but it could also be a non-Notice...
+        // FIXME: This should only test _one_ URI (and not the links etc.) though a function like this could be useful in other cases
         $local = ActivityUtils::findLocalObject($actobj->getIdentifiers());
         if (!$local instanceof Notice) {
             // $local always returns something, but this was not what we expected. Something is wrong.
@@ -391,14 +410,7 @@ class Fave extends Managed_DataObject
 
     public function getTarget()
     {
-        // throws exception on failure
-        $target = new Notice();
-        $target->id = $this->notice_id;
-        if (!$target->find(true)) {
-            throw new NoResultException($target);
-        }
-
-        return $target;
+        return Notice::getByID($this->notice_id);
     }
 
     public function getTargetObject()

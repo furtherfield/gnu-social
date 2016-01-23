@@ -154,7 +154,13 @@ class NoticeListItem extends Widget
 
         if (!empty($this->notice->reply_to) || count($this->getProfileAddressees()) > 0) {
             $this->elementStart('div', array('class' => 'parents'));
-            if (!empty($this->notice->reply_to)) { $this->showParent(); }
+            try {
+                $this->showParent();
+            } catch (NoParentNoticeException $e) {
+                // no parent notice
+            } catch (InvalidUrlException $e) {
+                // parent had an invalid URL so we can't show it
+            }
             if ($this->addressees) { $this->showAddressees(); }
             $this->elementEnd('div');
         }
@@ -291,7 +297,7 @@ class NoticeListItem extends Widget
         if($this->pa) { return $this->pa; }
         $this->pa = array();
 
-        $attentions = $this->getReplyProfiles();
+        $attentions = $this->getAttentionProfiles();
 
         foreach ($attentions as $attn) {
             $class = $attn->isGroup() ? 'group' : 'account';
@@ -304,9 +310,9 @@ class NoticeListItem extends Widget
         return $this->pa;
     }
 
-    function getReplyProfiles()
+    function getAttentionProfiles()
     {
-        return $this->notice->getReplyProfiles();
+        return $this->notice->getAttentionProfiles();
     }
 
     /**
@@ -339,13 +345,8 @@ class NoticeListItem extends Widget
         if (Event::handle('StartShowNoticeContent', array($this->notice, $this->out, $this->out->getScoped()))) {
             if ($this->maxchars > 0 && mb_strlen($this->notice->content) > $this->maxchars) {
                 $this->out->text(mb_substr($this->notice->content, 0, $this->maxchars) . '[…]');
-            } elseif ($this->notice->rendered) {
-                $this->out->raw($this->notice->rendered);
             } else {
-                // XXX: may be some uncooked notices in the DB,
-                // we cook them right now. This should probably disappear in future
-                // versions (>> 0.4.x)
-                $this->out->raw(common_render_content($this->notice->content, $this->notice));
+                $this->out->raw($this->notice->getRendered());
             }
             Event::handle('EndShowNoticeContent', array($this->notice, $this->out, $this->out->getScoped()));
         }
@@ -537,6 +538,19 @@ class NoticeListItem extends Widget
         if (!$this->notice->isLocal()) {
             $class .= ' external';
         }
+
+        try {
+            if($this->repeat) {
+                $this->out->element('a',
+                            array('href' => $this->repeat->getUrl(),
+                                  'class' => 'u-url'),
+                            '');
+                $class = str_replace('u-url', 'u-repost-of', $class);
+            }
+        } catch (InvalidUrlException $e) {
+            // no permalink available
+        }
+
         try {
             $this->out->element('a',
                         array('href' => $this->notice->getUrl(true),

@@ -14,6 +14,7 @@ class User_group extends Managed_DataObject
 
     public $__table = 'user_group';                      // table name
     public $id;                              // int(4)  primary_key not_null
+    public $profile_id;                      // int(4)  primary_key not_null
     public $nickname;                        // varchar(64)
     public $fullname;                        // varchar(191)   not 255 because utf8mb4 takes more space
     public $homepage;                        // varchar(191)   not 255 because utf8mb4 takes more space
@@ -114,18 +115,7 @@ class User_group extends Managed_DataObject
 
     function homeUrl()
     {
-        $url = null;
-        if (Event::handle('StartUserGroupHomeUrl', array($this, &$url))) {
-            // normally stored in mainpage, but older ones may be null
-            if (!empty($this->mainpage)) {
-                $url = $this->mainpage;
-            } elseif ($this->isLocal()) {
-                $url = common_local_url('showgroup',
-                                        array('nickname' => $this->nickname));
-            }
-        }
-        Event::handle('EndUserGroupHomeUrl', array($this, &$url));
-        return $url;
+        return $this->getProfile()->getUrl();
     }
 
     function getUri()
@@ -220,24 +210,19 @@ class User_group extends Managed_DataObject
      */
     function getRequests($offset=0, $limit=null)
     {
-        $qry =
-          'SELECT profile.* ' .
-          'FROM profile JOIN group_join_queue '.
-          'ON profile.id = group_join_queue.profile_id ' .
-          'WHERE group_join_queue.group_id = %d ' .
-          'ORDER BY group_join_queue.created DESC ';
-
-        if ($limit != null) {
-            if (common_config('db','type') == 'pgsql') {
-                $qry .= ' LIMIT ' . $limit . ' OFFSET ' . $offset;
-            } else {
-                $qry .= ' LIMIT ' . $offset . ', ' . $limit;
-            }
-        }
+        $rq = new Group_join_queue();
+        $rq->group_id = $this->id;
 
         $members = new Profile();
 
-        $members->query(sprintf($qry, $this->id));
+        $members->joinAdd(['id', $rq, 'profile_id']);
+
+        if ($limit != null) {
+            $members->limit($offset, $limit);
+        }
+
+        $members->find();
+
         return $members;
     }
 

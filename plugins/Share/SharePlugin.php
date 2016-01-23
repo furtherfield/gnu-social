@@ -128,7 +128,6 @@ class SharePlugin extends ActivityVerbHandlerPlugin
         // Notice::saveActivity it will update the Notice object.
         $stored->repeat_of = $sharedNotice->getID();
         $stored->conversation = $sharedNotice->conversation;
-        $stored->object_type = ActivityUtils::resolveUri(ActivityObject::ACTIVITY, true);
 
         // We don't have to save a repeat in a separate table, we can
         // find repeats by just looking at the notice.repeat_of field.
@@ -171,7 +170,7 @@ class SharePlugin extends ActivityVerbHandlerPlugin
         $object          = new Activity();
         $object->actor   = $stored->getProfile()->asActivityObject();
         $object->verb    = ActivityVerb::SHARE;
-        $object->content = $stored->rendered;
+        $object->content = $stored->getRendered();
         $this->extendActivity($stored, $object);
 
         return $object;
@@ -281,7 +280,8 @@ class SharePlugin extends ActivityVerbHandlerPlugin
         if ($status['repeated'] === true) {
             // Qvitter API wants the "repeated_id" value set too.
             $repeated = Notice::pkeyGet(array('profile_id' => $scoped->getID(),
-                                              'repeat_of' => $notice->getID()));
+                                              'repeat_of' => $notice->getID(),
+                                              'verb' => ActivityVerb::SHARE));
             $status['repeated_id'] = $repeated->getID();
         }
     }

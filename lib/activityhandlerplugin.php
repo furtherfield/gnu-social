@@ -233,6 +233,9 @@ abstract class ActivityHandlerPlugin extends Plugin
     protected function notifyMentioned(Notice $stored, array &$mentioned_ids)
     {
         // pass through silently by default
+
+        // If we want to stop any other plugin from notifying based on this activity, return false instead.
+        return true;
     }
 
     /**
@@ -305,10 +308,7 @@ abstract class ActivityHandlerPlugin extends Plugin
             return true;
         }
 
-        $this->notifyMentioned($stored, $mentioned_ids);
-
-        // If it was _our_ notice, only we should do anything with the mentions.
-        return false;
+        return $this->notifyMentioned($stored, $mentioned_ids);
     }
 
     /**
@@ -381,7 +381,7 @@ abstract class ActivityHandlerPlugin extends Plugin
             return true;
         }
 
-        $this->log(LOG_INFO, "Checking {$activity->id} as a valid Salmon slap.");
+        $this->log(LOG_INFO, get_called_class()." checking {$activity->id} as a valid Salmon slap.");
 
         if ($target instanceof User_group || $target->isGroup()) {
             $uri = $target->getUri();
@@ -585,7 +585,8 @@ abstract class ActivityHandlerPlugin extends Plugin
         try {
             $this->showNoticeListItem($nli);
         } catch (Exception $e) {
-            $nli->out->element('p', 'error', 'Error showing notice: '.htmlspecialchars($e->getMessage()));
+            common_log(LOG_ERR, 'Error showing notice '.$nli->getNotice()->getID().': ' . $e->getMessage());
+            $nli->out->element('p', 'error', sprintf(_('Error showing notice: %s'), $e->getMessage()));
         }
 
         Event::handle('EndShowNoticeItem', array($nli));

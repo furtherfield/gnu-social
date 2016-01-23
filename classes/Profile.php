@@ -17,24 +17,21 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-if (!defined('STATUSNET') && !defined('LACONICA')) { exit(1); }
+if (!defined('GNUSOCIAL')) { exit(1); }
 
 /**
  * Table Definition for profile
  */
 class Profile extends Managed_DataObject
 {
-    ###START_AUTOCODE
-    /* the code below is auto generated do not remove the above tag */
-
     public $__table = 'profile';                         // table name
     public $id;                              // int(4)  primary_key not_null
     public $nickname;                        // varchar(64)  multiple_key not_null
-    public $fullname;                        // varchar(191)  multiple_key   not 255 because utf8mb4 takes more space
-    public $profileurl;                      // varchar(191)                 not 255 because utf8mb4 takes more space
-    public $homepage;                        // varchar(191)  multiple_key   not 255 because utf8mb4 takes more space
+    public $fullname;                        // text()
+    public $profileurl;                      // text()
+    public $homepage;                        // text()
     public $bio;                             // text()  multiple_key
-    public $location;                        // varchar(191)  multiple_key   not 255 because utf8mb4 takes more space
+    public $location;                        // text()
     public $lat;                             // decimal(10,7)
     public $lon;                             // decimal(10,7)
     public $location_id;                     // int(4)
@@ -49,11 +46,11 @@ class Profile extends Managed_DataObject
             'fields' => array(
                 'id' => array('type' => 'serial', 'not null' => true, 'description' => 'unique identifier'),
                 'nickname' => array('type' => 'varchar', 'length' => 64, 'not null' => true, 'description' => 'nickname or username', 'collate' => 'utf8mb4_general_ci'),
-                'fullname' => array('type' => 'varchar', 'length' => 191, 'description' => 'display name', 'collate' => 'utf8mb4_general_ci'),
-                'profileurl' => array('type' => 'varchar', 'length' => 191, 'description' => 'URL, cached so we dont regenerate'),
-                'homepage' => array('type' => 'varchar', 'length' => 191, 'description' => 'identifying URL', 'collate' => 'utf8mb4_general_ci'),
+                'fullname' => array('type' => 'text', 'description' => 'display name', 'collate' => 'utf8mb4_general_ci'),
+                'profileurl' => array('type' => 'text', 'description' => 'URL, cached so we dont regenerate'),
+                'homepage' => array('type' => 'text', 'description' => 'identifying URL', 'collate' => 'utf8mb4_general_ci'),
                 'bio' => array('type' => 'text', 'description' => 'descriptive biography', 'collate' => 'utf8mb4_general_ci'),
-                'location' => array('type' => 'varchar', 'length' => 191, 'description' => 'physical location', 'collate' => 'utf8mb4_general_ci'),
+                'location' => array('type' => 'text', 'description' => 'physical location', 'collate' => 'utf8mb4_general_ci'),
                 'lat' => array('type' => 'numeric', 'precision' => 10, 'scale' => 7, 'description' => 'latitude'),
                 'lon' => array('type' => 'numeric', 'precision' => 10, 'scale' => 7, 'description' => 'longitude'),
                 'location_id' => array('type' => 'int', 'description' => 'location id if possible'),
@@ -76,9 +73,6 @@ class Profile extends Managed_DataObject
 
         return $def;
     }
-	
-    /* the code above is auto generated do not remove the tag below */
-    ###END_AUTOCODE
 
     public static function getByEmail($email)
     {
@@ -181,7 +175,6 @@ class Profile extends Managed_DataObject
         $avatar->mediatype = image_type_to_mime_type($imagefile->type);
         $avatar->filename = $filename;
         $avatar->original = true;
-        $avatar->url = Avatar::url($filename);
         $avatar->created = common_sql_now();
 
         // XXX: start a transaction here
@@ -239,16 +232,22 @@ class Profile extends Managed_DataObject
      *
      * @return mixed Notice or null
      */
-    function getCurrentNotice()
+    function getCurrentNotice(Profile $scoped=null)
     {
-        $notice = $this->getNotices(0, 1);
+        try {
+            $notice = $this->getNotices(0, 1, 0, 0, $scoped);
 
-        if ($notice->fetch()) {
-            if ($notice instanceof ArrayWrapper) {
-                // hack for things trying to work with single notices
-                return $notice->_items[0];
+            if ($notice->fetch()) {
+                if ($notice instanceof ArrayWrapper) {
+                    // hack for things trying to work with single notices
+                    // ...but this shouldn't happen anymore I think. Keeping it for safety...
+                    return $notice->_items[0];
+                }
+                return $notice;
             }
-            return $notice;
+        } catch (PrivateStreamException $e) {
+            // Maybe we should let this through if it's handled well upstream
+            return null;
         }
         
         return null;
@@ -381,7 +380,7 @@ class Profile extends Managed_DataObject
         return false;
     }
 
-    function getLists($auth_user, $offset=0, $limit=null, $since_id=0, $max_id=0)
+    function getLists(Profile $scoped=null, $offset=0, $limit=null, $since_id=0, $max_id=0)
     {
         $ids = array();
 
@@ -421,9 +420,7 @@ class Profile extends Managed_DataObject
             self::cacheSet($keypart, implode(',', $ids));
         }
 
-        $showPrivate = (($auth_user instanceof User ||
-                            $auth_user instanceof Profile) &&
-                        $auth_user->id === $this->id);
+        $showPrivate = $this->sameAs($scoped);
 
         $lists = array();
 
@@ -446,7 +443,7 @@ class Profile extends Managed_DataObject
     /**
      * Get tags that other people put on this profile, in reverse-chron order
      *
-     * @param (Profile|User) $auth_user  Authorized user (used for privacy)
+     * @param Profile        $scoped     User we are requesting as
      * @param int            $offset     Offset from latest
      * @param int            $limit      Max number to get
      * @param datetime       $since_id   max date
@@ -455,7 +452,7 @@ class Profile extends Managed_DataObject
      * @return Profile_list resulting lists
      */
 
-    function getOtherTags($auth_user=null, $offset=0, $limit=null, $since_id=0, $max_id=0)
+    function getOtherTags(Profile $scoped=null, $offset=0, $limit=null, $since_id=0, $max_id=0)
     {
         $list = new Profile_list();
 
@@ -467,11 +464,11 @@ class Profile extends Managed_DataObject
                        $this->id);
 
 
-        if ($auth_user instanceof User || $auth_user instanceof Profile) {
+        if (!is_null($scoped)) {
             $qry .= sprintf('AND ( ( profile_list.private = false ) ' .
                             'OR ( profile_list.tagger = %d AND ' .
                             'profile_list.private = true ) )',
-                            $auth_user->id);
+                            $scoped->getID());
         } else {
             $qry .= 'AND profile_list.private = 0 ';
         }
@@ -688,25 +685,16 @@ class Profile extends Managed_DataObject
      */
     function getRequests($offset=0, $limit=null)
     {
-        $qry =
-          'SELECT profile.* ' .
-          'FROM profile JOIN subscription_queue '.
-          'ON profile.id = subscription_queue.subscriber ' .
-          'WHERE subscription_queue.subscribed = %d ' .
-          'ORDER BY subscription_queue.created DESC ';
-
-        if ($limit != null) {
-            if (common_config('db','type') == 'pgsql') {
-                $qry .= ' LIMIT ' . $limit . ' OFFSET ' . $offset;
-            } else {
-                $qry .= ' LIMIT ' . $offset . ', ' . $limit;
-            }
+        // FIXME: mysql only
+        $subqueue = new Profile();
+        $subqueue->joinAdd(array('id', 'subscription_queue:subscriber'));
+        $subqueue->whereAdd(sprintf('subscription_queue.subscribed = %d', $this->getID()));
+        $subqueue->limit($offset, $limit);
+        $subqueue->orderBy('subscription_queue.created', 'DESC');
+        if (!$subqueue->find()) {
+            throw new NoResultException($subqueue);
         }
-
-        $members = new Profile();
-
-        $members->query(sprintf($qry, $this->id));
-        return $members;
+        return $subqueue;
     }
 
     function subscriptionCount()
@@ -767,6 +755,36 @@ class Profile extends Managed_DataObject
         return Subscription::exists($this, $other);
     }
 
+    function readableBy(Profile $other=null)
+    {
+        // If it's not a private stream, it's readable by anyone
+        if (!$this->isPrivateStream()) {
+            return true;
+        }
+
+        // If it's a private stream, $other must be a subscriber to $this
+        return is_null($other) ? false : $other->isSubscribed($this);
+    }
+
+    function requiresSubscriptionApproval(Profile $other=null)
+    {
+        if (!$this->isLocal()) {
+            // We don't know for remote users, and we'll always be able to send
+            // the request. Whether it'll work immediately or require moderation
+            // can be determined in another function.
+            return false;
+        }
+
+        // Assume that profiles _we_ subscribe to are permitted. Could be made configurable.
+        if (!is_null($other) && $this->isSubscribed($other)) {
+            return false;
+        }
+
+        // If the local user either has a private stream (implies the following)
+        // or  user has a moderation policy for new subscriptions, return true.
+        return $this->getUser()->private_stream || $this->getUser()->subscribe_policy === User::SUBSCRIBE_POLICY_MODERATE;
+    }
+
     /**
      * Check if a pending subscription request is outstanding for this...
      *
@@ -803,6 +821,7 @@ class Profile extends Managed_DataObject
 
         $notices = new Notice();
         $notices->profile_id = $this->id;
+        $notices->verb = ActivityVerb::POST;        
         $cnt = (int) $notices->count('distinct id');
 
         if (!empty($c)) {
@@ -926,41 +945,48 @@ class Profile extends Managed_DataObject
     function _deleteSubscriptions()
     {
         $sub = new Subscription();
-        $sub->subscriber = $this->id;
-
+        $sub->subscriber = $this->getID();
         $sub->find();
 
         while ($sub->fetch()) {
-            $other = Profile::getKV('id', $sub->subscribed);
-            if (empty($other)) {
-                continue;
+            try {
+                $other = $sub->getSubscribed();
+                if (!$other->sameAs($this)) {
+                    Subscription::cancel($this, $other);
+                }
+            } catch (NoResultException $e) {
+                // Profile not found
+                common_log(LOG_INFO, 'Subscribed profile id=='.$sub->subscribed.' not found when deleting profile id=='.$this->getID().', ignoring...');
+            } catch (ServerException $e) {
+                // Subscription cancel failed
+                common_log(LOG_INFO, 'Subscribed profile id=='.$other->getID().' could not be reached for unsubscription notice when deleting profile id=='.$this->getID().', ignoring...');
             }
-            if ($other->id == $this->id) {
-                continue;
-            }
-            Subscription::cancel($this, $other);
         }
 
-        $subd = new Subscription();
-        $subd->subscribed = $this->id;
-        $subd->find();
+        $sub = new Subscription();
+        $sub->subscribed = $this->getID();
+        $sub->find();
 
-        while ($subd->fetch()) {
-            $other = Profile::getKV('id', $subd->subscriber);
-            if (empty($other)) {
-                continue;
+        while ($sub->fetch()) {
+            try {
+                $other = $sub->getSubscriber();
+                common_log(LOG_INFO, 'Subscriber profile id=='.$sub->subscribed.' not found when deleting profile id=='.$this->getID().', ignoring...');
+                if (!$other->sameAs($this)) {
+                    Subscription::cancel($other, $this);
+                }
+            } catch (NoResultException $e) {
+                // Profile not found
+                common_log(LOG_INFO, 'Subscribed profile id=='.$sub->subscribed.' not found when deleting profile id=='.$this->getID().', ignoring...');
+            } catch (ServerException $e) {
+                // Subscription cancel failed
+                common_log(LOG_INFO, 'Subscriber profile id=='.$other->getID().' could not be reached for unsubscription notice when deleting profile id=='.$this->getID().', ignoring...');
             }
-            if ($other->id == $this->id) {
-                continue;
-            }
-            Subscription::cancel($other, $this);
         }
 
+        // Finally delete self-subscription
         $self = new Subscription();
-
-        $self->subscriber = $this->id;
-        $self->subscribed = $this->id;
-
+        $self->subscriber = $this->getID();
+        $self->subscribed = $this->getID();
         $self->delete();
     }
 
@@ -1242,8 +1268,9 @@ class Profile extends Managed_DataObject
     {
         // XXX: not really a pkey, but should work
 
-        $notice = Notice::pkeyGet(array('profile_id' => $this->id,
-                                        'repeat_of' => $notice->id));
+        $notice = Notice::pkeyGet(array('profile_id' => $this->getID(),
+                                        'repeat_of' => $notice->getID(),
+                                        'verb' => ActivityVerb::SHARE));
 
         return !empty($notice);
     }
@@ -1395,11 +1422,25 @@ class Profile extends Managed_DataObject
      */
     public function getUrl()
     {
-        if (empty($this->profileurl) ||
-                !filter_var($this->profileurl, FILTER_VALIDATE_URL)) {
-            throw new InvalidUrlException($this->profileurl);
+        $url = null;
+        if ($this->isGroup()) {
+            // FIXME: Get rid of this event, it fills no real purpose, data should be in Profile->profileurl (replaces User_group->mainpage)
+            if (Event::handle('StartUserGroupHomeUrl', array($this->getGroup(), &$url))) {
+                $url = $this->getGroup()->isLocal()
+                        ? common_local_url('showgroup', array('nickname' => $this->getNickname()))
+                        : $this->profileurl;
+            }
+            Event::handle('EndUserGroupHomeUrl', array($this->getGroup(), $url));
+        } elseif ($this->isLocal()) {
+            $url = common_local_url('showstream', array('nickname' => $this->getNickname()));
+        } else {
+            $url = $this->profileurl;
         }
-        return $this->profileurl;
+        if (empty($url) ||
+                !filter_var($url, FILTER_VALIDATE_URL)) {
+            throw new InvalidUrlException($url);
+        }
+        return $url;
     }
 
     public function getNickname()
@@ -1438,6 +1479,11 @@ class Profile extends Managed_DataObject
             $user = User::getKV('id', $this->id);
             if ($user instanceof User) {
                 $uri = $user->getUri();
+            } else {
+                $group = User_group::getKV('profile_id', $this->id);
+                if ($group instanceof User_group) {
+                    $uri = $group->getUri();
+                }
             }
 
             Event::handle('EndGetProfileUri', array($this, &$uri));
@@ -1509,6 +1555,11 @@ class Profile extends Managed_DataObject
             $user = User::getKV('uri', $uri);
             if ($user instanceof User) {
                 $profile = $user->getProfile();
+            } else {
+                $group = User_group::getKV('uri', $uri);
+                if ($group instanceof User_group) {
+                    $profile = $group->getProfile();
+                }
             }
             Event::handle('EndGetProfileFromURI', array($uri, $profile));
         }

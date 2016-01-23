@@ -31,10 +31,10 @@ class File extends Managed_DataObject
     public $filehash;                        // varchar(64)     indexed
     public $mimetype;                        // varchar(50)
     public $size;                            // int(4)
-    public $title;                           // varchar(191)   not 255 because utf8mb4 takes more space
+    public $title;                           // text()
     public $date;                            // int(4)
     public $protected;                       // int(4)
-    public $filename;                        // varchar(191)   not 255 because utf8mb4 takes more space
+    public $filename;                        // text()
     public $width;                           // int(4)
     public $height;                          // int(4)
     public $modified;                        // timestamp()   not_null default_CURRENT_TIMESTAMP
@@ -52,10 +52,10 @@ class File extends Managed_DataObject
                 'filehash' => array('type' => 'varchar', 'length' => 64, 'not null' => false, 'description' => 'sha256 of the file contents, only for locally stored files of course'),
                 'mimetype' => array('type' => 'varchar', 'length' => 50, 'description' => 'mime type of resource'),
                 'size' => array('type' => 'int', 'description' => 'size of resource when available'),
-                'title' => array('type' => 'varchar', 'length' => 191, 'description' => 'title of resource when available'),
+                'title' => array('type' => 'text', 'description' => 'title of resource when available'),
                 'date' => array('type' => 'int', 'description' => 'date of resource according to http query'),
                 'protected' => array('type' => 'int', 'description' => 'true when URL is private (needs login)'),
-                'filename' => array('type' => 'varchar', 'length' => 191, 'description' => 'if a local file, name of the file'),
+                'filename' => array('type' => 'text', 'description' => 'if file is stored locally (too) this is the filename'),
                 'width' => array('type' => 'int', 'description' => 'width in pixels, if it can be described as such and data is available'),
                 'height' => array('type' => 'int', 'description' => 'height in pixels, if it can be described as such and data is available'),
 
@@ -356,26 +356,45 @@ class File extends Managed_DataObject
         return $protocol.'://'.$server.$path.$filename;
     }
 
+    static $_enclosures = array();
+
     function getEnclosure(){
+        if (isset(self::$_enclosures[$this->getID()])) {
+            common_debug('Found cached enclosure for file id=='.$this->getID());
+            return self::$_enclosures[$this->getID()];
+        }
+
         $enclosure = (object) array();
         foreach (array('title', 'url', 'date', 'modified', 'size', 'mimetype') as $key) {
             $enclosure->$key = $this->$key;
         }
 
-        $needMoreMetadataMimetypes = array(null, 'application/xhtml+xml');
+        $needMoreMetadataMimetypes = array(null, 'application/xhtml+xml', 'text/html');
 
         if (!isset($this->filename) && in_array(common_bare_mime($enclosure->mimetype), $needMoreMetadataMimetypes)) {
             // This fetches enclosure metadata for non-local links with unset/HTML mimetypes,
             // which may be enriched through oEmbed or similar (implemented as plugins)
             Event::handle('FileEnclosureMetadata', array($this, &$enclosure));
         }
-        if (empty($enclosure->mimetype) || in_array(common_bare_mime($enclosure->mimetype), $needMoreMetadataMimetypes)) {
+        if (empty($enclosure->mimetype)) {
             // This means we either don't know what it is, so it can't
             // be shown as an enclosure, or it is an HTML link which
             // does not link to a resource with further metadata.
             throw new ServerException('Unknown enclosure mimetype, not enough metadata');
         }
+
+        self::$_enclosures[$this->getID()] = $enclosure;
         return $enclosure;
+    }
+
+    public function hasThumbnail()
+    {
+        try {
+            $this->getThumbnail();
+        } catch (Exception $e) {
+            return false;
+        }
+        return true;
     }
 
     /**
@@ -416,17 +435,11 @@ class File extends Managed_DataObject
         return $filepath;
     }
 
-    public function getUrl()
+    public function getUrl($prefer_local=true)
     {
-        if (!empty($this->filename)) {
+        if ($prefer_local && !empty($this->filename)) {
             // A locally stored file, so let's generate a URL for our instance.
-            $url = self::url($this->filename);
-            if (self::hashurl($url) !== $this->urlhash) {
-                // For indexing purposes, in case we do a lookup on the 'url' field.
-                // also we're fixing possible changes from http to https, or paths
-                $this->updateUrl($url);
-            }
-            return $url;
+            return self::url($this->filename);
         }
 
         // No local filename available, return the URL we have stored

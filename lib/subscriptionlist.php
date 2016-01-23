@@ -27,9 +27,7 @@
  * @link      http://status.net/
  */
 
-if (!defined('STATUSNET') && !defined('LACONICA')) {
-    exit(1);
-}
+if (!defined('GNUSOCIAL')) { exit(1); }
 
 /**
  * Widget to show a list of subscriptions
@@ -46,56 +44,15 @@ class SubscriptionList extends ProfileList
     /** Owner of this list */
     var $owner = null;
 
-    function __construct($profile, $owner=null, $action=null)
+    public function __construct(Profile $profile, $owner=null, $action=null)
     {
         parent::__construct($profile, $action);
 
         $this->owner = $owner;
     }
 
-    function newListItem($profile)
+    public function newListItem(Profile $profile)
     {
         return new SubscriptionListItem($profile, $this->owner, $this->action);
-    }
-}
-
-class SubscriptionListItem extends ProfileListItem
-{
-    /** Owner of this list */
-    var $owner = null;
-
-    function __construct($profile, $owner, $action)
-    {
-        parent::__construct($profile, $action);
-
-        $this->owner = $owner;
-    }
-
-    function showProfile()
-    {
-        $this->startProfile();
-        $this->showAvatar($this->profile);
-        $this->showNickname();
-        $this->showFullName();
-        $this->showLocation();
-        $this->showHomepage();
-        $this->showBio();
-        // Relevant portion!
-        $this->showTags();
-        if ($this->isOwn()) {
-            $this->showOwnerControls();
-        }
-        $this->endProfile();
-    }
-
-    function showOwnerControls()
-    {
-        // pass
-    }
-
-    function isOwn()
-    {
-        $user = common_current_user();
-        return (!empty($user) && ($this->owner->id == $user->id));
     }
 }

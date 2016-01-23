@@ -32,6 +32,7 @@ if (!defined('STATUSNET')) {
 }
 
 require_once('Auth/Yadis/Yadis.php');
+require_once(__DIR__ . '/lib/util.php');
 
 define('LINKBACKPLUGIN_VERSION', '0.1');
 
@@ -140,13 +141,16 @@ class LinkbackPlugin extends Plugin
     // Based on https://github.com/indieweb/mention-client-php
     // which is licensed Apache 2.0
     function getWebmention($result) {
-        // XXX: the fetcher only gives back one of each header, so this may fail on multiple Link headers
-        if(preg_match('~<((?:https?://)?[^>]+)>; rel="webmention"~', $result->headers['Link'], $match)) {
-            return $match[1];
-        } elseif(preg_match('~<((?:https?://)?[^>]+)>; rel="http://webmention.org/?"~', $result->headers['Link'], $match)) {
-            return $match[1];
+        if (isset($result->headers['Link'])) {
+            // XXX: the fetcher only gives back one of each header, so this may fail on multiple Link headers
+            if(preg_match('~<((?:https?://)?[^>]+)>; rel="webmention"~', $result->headers['Link'], $match)) {
+                return $match[1];
+            } elseif(preg_match('~<((?:https?://)?[^>]+)>; rel="http://webmention.org/?"~', $result->headers['Link'], $match)) {
+                return $match[1];
+            }
         }
 
+        // FIXME: Do proper DOM traversal
         if(preg_match('/<(?:link|a)[ ]+href="([^"]+)"[ ]+rel="[^" ]* ?webmention ?[^" ]*"[ ]*\/?>/i', $result->body, $match)
            || preg_match('/<(?:link|a)[ ]+rel="[^" ]* ?webmention ?[^" ]*"[ ]+href="([^"]+)"[ ]*\/?>/i', $result->body, $match)) {
             return $match[1];
@@ -306,6 +310,19 @@ class LinkbackPlugin extends Plugin
         }
     }
 
+
+    public function onRouterInitialized(URLMapper $m)
+    {
+        $m->connect('main/linkback/webmention', array('action' => 'webmention'));
+        $m->connect('main/linkback/pingback', array('action' => 'pingback'));
+    }
+
+    public function onStartShowHTML($action)
+    {
+        header('Link: <' . common_local_url('webmention') . '>; rel="webmention"', false);
+        header('X-Pingback: ' . common_local_url('pingback'));
+    }
+
     public function version()
     {
         return LINKBACKPLUGIN_VERSION;
@@ -343,5 +360,35 @@ class LinkbackPlugin extends Plugin
                           _m('Opt-out of sending linkbacks.'),
                           $action_name === 'linkbacksettings');
         return true;
+    }
+
+    function onStartNoticeSourceLink($notice, &$name, &$url, &$title)
+    {
+        // If we don't handle this, keep the event handler going
+        if (!in_array($notice->source, array('linkback'))) {
+            return true;
+        }
+
+        try {
+            $url = $notice->getUrl();
+            // If getUrl() throws exception, $url is never set
+
+            $bits = parse_url($url);
+            $domain = $bits['host'];
+            if (substr($domain, 0, 4) == 'www.') {
+                $name = substr($domain, 4);
+            } else {
+                $name = $domain;
+            }
+
+            // TRANS: Title. %s is a domain name.
+            $title = sprintf(_m('Sent from %s via Linkback'), $domain);
+
+            // Abort event handler, we have a name and URL!
+            return false;
+        } catch (InvalidUrlException $e) {
+            // This just means we don't have the notice source data
+            return true;
+        }
     }
 }

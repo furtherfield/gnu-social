@@ -80,7 +80,7 @@ class GNUsocial_HTTPResponse extends HTTP_Request2_Response
      */
     function getUrl()
     {
-        return $this->url;
+        return $this->effectiveUrl;
     }
 
     /**
@@ -121,6 +121,7 @@ class HTTPClient extends HTTP_Request2
 
     function __construct($url=null, $method=self::METHOD_GET, $config=array())
     {
+        $this->config['connect_timeout'] = common_config('http', 'connect_timeout') ?: $this->config['connect_timeout'];
         $this->config['max_redirs'] = 10;
         $this->config['follow_redirects'] = true;
         
@@ -177,8 +178,17 @@ class HTTPClient extends HTTP_Request2
     /**
      * Quick static function to GET a URL
      */
-    public static function quickGet($url, $accept=null)
+    public static function quickGet($url, $accept=null, $params=array())
     {
+        if (!empty($params)) {
+            $params = http_build_query($params, null, '&');
+            if (strpos($url, '?') === false) {
+                $url .= '?' . $params;
+            } else {
+                $url .= '&' . $params;
+            }
+        }
+
         $client = new HTTPClient();
         if (!is_null($accept)) {
             $client->setHeader('Accept', $accept);
@@ -189,6 +199,16 @@ class HTTPClient extends HTTP_Request2
             throw new Exception(sprintf(_m('Could not GET URL %s.'), $url), $response->getStatus());
         }
         return $response->getBody();
+    }
+
+    public static function quickGetJson($url, $params=array())
+    {
+        $data = json_decode(self::quickGet($url, null, $params));
+        if (is_null($data)) {
+            common_debug('Could not decode JSON data from URL: '.$url);
+            throw new ServerException('Could not decode JSON data from URL');
+        }
+        return $data;
     }
 
     /**

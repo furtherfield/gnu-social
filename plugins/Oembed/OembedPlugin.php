@@ -35,6 +35,24 @@ class OembedPlugin extends Plugin
         $m->connect('main/oembed', array('action' => 'oembed'));
     }
 
+    public function onGetRemoteUrlMetadataFromDom($url, DOMDocument $dom, stdClass &$metadata)
+    {
+        try {
+            common_log(LOG_INFO, 'Trying to discover an oEmbed endpoint using link headers.');
+            $api = oEmbedHelper::oEmbedEndpointFromHTML($dom);
+            common_log(LOG_INFO, 'Found API endpoint ' . $api . ' for URL ' . $url);
+            $params = array(
+                'maxwidth' => common_config('thumbnail', 'width'),
+                'maxheight' => common_config('thumbnail', 'height'),
+            );
+            $metadata = oEmbedHelper::getOembedFrom($api, $url, $params);
+
+        } catch (Exception $e) {
+            common_log(LOG_INFO, 'Could not find an oEmbed endpoint using link headers.');
+            // Just ignore it!
+        }
+    }
+
     public function onEndShowHeadElements(Action $action)
     {
         switch ($action->getActionName()) {
@@ -59,6 +77,9 @@ class OembedPlugin extends Plugin
                 'title'=>'oEmbed'),null);
             break;
         case 'shownotice':
+            if (!$action->notice->isLocal()) {
+                break;
+            }
             try {
                 $action->element('link',array('rel'=>'alternate',
                     'type'=>'application/json+oembed',
@@ -166,7 +187,7 @@ class OembedPlugin extends Plugin
         return true;
     }
     
-    public function onStartShowAttachmentRepresentation(HTMLOutputter $out, File $file)
+    public function onShowUnsupportedAttachmentRepresentation(HTMLOutputter $out, File $file)
     {
         try {
             $oembed = File_oembed::getByFile($file);
@@ -174,6 +195,7 @@ class OembedPlugin extends Plugin
             return true;
         }
 
+        // the 'photo' type is shown through ordinary means, using StartShowAttachmentRepresentation!
         switch ($oembed->type) {
         case 'rich':
         case 'video':
@@ -186,15 +208,11 @@ class OembedPlugin extends Plugin
                     'elements'=>'*+object+embed');
                 $out->raw(htmLawed($oembed->html,$config));
             }
+            return false;
             break;
-
-        case 'photo':
-            $out->element('img', array('src' => $oembed->url, 'width' => $oembed->width, 'height' => $oembed->height, 'alt' => 'alt'));
-            break;
-
-        default:
-            Event::handle('ShowUnsupportedAttachmentRepresentation', array($out, $file));
         }
+
+        return true;
     }
 
     public function onCreateFileImageThumbnailSource(File $file, &$imgPath, $media=null)

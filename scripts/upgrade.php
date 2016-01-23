@@ -41,7 +41,6 @@ function main()
 
         // These replace old "fixup_*" scripts
 
-        fixupNoticeRendered();
         fixupNoticeConversation();
         initConversation();
         fixupGroupURI();
@@ -94,30 +93,13 @@ function updateSchemaPlugins()
     printfnq("DONE.\n");
 }
 
-function fixupNoticeRendered()
-{
-    printfnq("Ensuring all notices have rendered HTML...");
-
-    $notice = new Notice();
-
-    $notice->whereAdd('rendered IS NULL');
-    $notice->find();
-
-    while ($notice->fetch()) {
-        $original = clone($notice);
-        $notice->rendered = common_render_content($notice->content, $notice);
-        $notice->update($original);
-    }
-
-    printfnq("DONE.\n");
-}
-
 function fixupNoticeConversation()
 {
     printfnq("Ensuring all notices have a conversation ID...");
 
     $notice = new Notice();
     $notice->whereAdd('conversation is null');
+    $notice->whereAdd('conversation = 0', 'OR');
     $notice->orderBy('id'); // try to get originals before replies
     $notice->find();
 
@@ -127,29 +109,36 @@ function fixupNoticeConversation()
     
             $orig = clone($notice);
     
-            if (empty($notice->reply_to)) {
-                $notice->conversation = $notice->id;
-            } else {
+            if (!empty($notice->reply_to)) {
                 $reply = Notice::getKV('id', $notice->reply_to);
 
-                if (empty($reply)) {
-                    $notice->conversation = $notice->id;
-                } else if (empty($reply->conversation)) {
-                    $notice->conversation = $notice->id;
-                } else {
+                if ($reply instanceof Notice && !empty($reply->conversation)) {
                     $notice->conversation = $reply->conversation;
                 }
-	
                 unset($reply);
-                $reply = null;
+            }
+
+            // if still empty
+            if (empty($notice->conversation)) {
+                $child = new Notice();
+                $child->reply_to = $notice->getID();
+                $child->limit(1);
+                if ($child->find(true) && !empty($child->conversation)) {
+                    $notice->conversation = $child->conversation;
+                }
+                unset($child);
+            }
+
+            // if _still_ empty we just create our own conversation
+            if (empty($notice->conversation)) {
+                $notice->conversation = $notice->getID();
             }
 
             $result = $notice->update($orig);
 
-            $orig = null;
             unset($orig);
         } catch (Exception $e) {
-            printv("Error setting conversation: " . $e->getMessage());
+            print("Error setting conversation: " . $e->getMessage());
         }
     }
 
@@ -359,7 +348,7 @@ function initGroupMemberURI()
                 $mem->query(sprintf('update group_member set uri = "%s" '.
                                     'where profile_id = %d ' . 
                                     'and group_id = %d ',
-                                    Group_member::newURI($mem->profile_id, $mem->group_id, $mem->created),
+                                    Group_member::newUri(Profile::getByID($mem->profile_id), User_group::getByID($mem->group_id), $mem->created),
                                     $mem->profile_id,
                                     $mem->group_id));
             } catch (Exception $e) {

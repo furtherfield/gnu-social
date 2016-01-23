@@ -380,32 +380,33 @@ class ActivityUtils
     }
 
     static function findLocalObject(array $uris, $type=ActivityObject::NOTE) {
-        $object = null;
-        // TODO: Extend this in plugins etc.
-        if (Event::handle('StartFindLocalActivityObject', array($uris, $type, &$object))) {
+        $obj_class = null;
+        // TODO: Extend this in plugins etc. and describe in EVENTS.txt
+        if (Event::handle('StartFindLocalActivityObject', array($uris, $type, &$obj_class))) {
             switch (self::resolveUri($type)) {
             case ActivityObject::PERSON:
                 // GROUP will also be here in due time...
-                $object = new Profile();
+                $obj_class = 'Profile';
                 break;
             default:
-                $object = new Notice();
+                $obj_class = 'Notice';
             }
         }
-        foreach (array_unique($uris) as $uri) {
+        $object = null;
+        $uris = array_unique($uris);
+        foreach ($uris as $uri) {
             try {
                 // the exception thrown will cancel before reaching $object
-                $object = call_user_func(array($object, 'fromUri'), $uri);
+                $object = call_user_func("{$obj_class}::fromUri", $uri);
                 break;
-            } catch (Exception $e) {
-                common_debug('Could not find local activity object from uri: '.$uri);
+            } catch (UnknownUriException $e) {
+                common_debug('Could not find local activity object from uri: '.$e->object_uri);
             }
         }
-        if (!empty($object)) {
-            Event::handle('EndFindLocalActivityObject', array($object->getUri(), $type, $object));
-        } else {
-            throw new ServerException('Could not find any activityobject stored locally with given URI');
+        if (!$object instanceof Managed_DataObject) {
+            throw new ServerException('Could not find any activityobject stored locally with given URIs: '.var_export($uris,true));
         }
+        Event::handle('EndFindLocalActivityObject', array($object->getUri(), $object->getObjectType(), $object));
         return $object;
     }
 

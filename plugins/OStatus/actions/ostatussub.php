@@ -193,31 +193,31 @@ class OStatusSubAction extends Action
         $hasFN = ($fullname !== '') ? 'nickname' : 'fn nickname entity_nickname';
         $this->elementStart('a', array('href' => $profile,
                                        'class' => 'url '.$hasFN));
-        $this->raw($nickname);
+        $this->text($nickname);
         $this->elementEnd('a');
 
         if (!is_null($fullname)) {
             $this->elementStart('div', 'fn entity_fn');
-            $this->raw($fullname);
+            $this->text($fullname);
             $this->elementEnd('div');
         }
 
         if (!is_null($location)) {
             $this->elementStart('div', 'label entity_location');
-            $this->raw($location);
+            $this->text($location);
             $this->elementEnd('div');
         }
 
         if (!is_null($homepage)) {
             $this->elementStart('a', array('href' => $homepage,
                                            'class' => 'url entity_url'));
-            $this->raw($homepage);
+            $this->text($homepage);
             $this->elementEnd('a');
         }
 
         if (!is_null($note)) {
             $this->elementStart('div', 'note entity_note');
-            $this->raw($note);
+            $this->text($note);
             $this->elementEnd('div');
         }
         $this->elementEnd('div');
@@ -281,6 +281,10 @@ class OStatusSubAction extends Action
             // TRANS: Error text.
             $this->error = _m("Sorry, we could not reach that feed. Please try that OStatus address again later.");
             common_debug('Not a recognized feed type.', __FILE__);
+        } catch (FeedSubNoHubException $e) {
+            // TRANS: Error text.
+            $this->error = _m("Sorry, that feed is not Pubsubhubub enabled.");
+            common_debug('No hub found.', __FILE__);
         } catch (Exception $e) {
             // Any new ones we forgot about
                 // TRANS: Error message in OStatus plugin. Do not translate the domain names example.com

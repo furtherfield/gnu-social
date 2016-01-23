@@ -297,10 +297,13 @@ class OStatusPlugin extends Plugin
                     $oprofile = Ostatus_profile::ensureWebfinger($target);
                     if ($oprofile instanceof Ostatus_profile && !$oprofile->isGroup()) {
                         $profile = $oprofile->localProfile();
+                        $text = !empty($profile->nickname) && mb_strlen($profile->nickname) < mb_strlen($target) ?
+                                $profile->nickname : $target;
                         $matches[$pos] = array('mentioned' => array($profile),
                                                'type' => 'mention',
-                                               'text' => $target,
+                                               'text' => $text,
                                                'position' => $pos,
+                                               'length' => mb_strlen($target),
                                                'url' => $profile->getUrl());
                     }
                 } catch (Exception $e) {
@@ -310,7 +313,7 @@ class OStatusPlugin extends Plugin
         }
 
         // Profile matches: @example.com/mublog/user
-        if (preg_match_all('!(?:^|\s+)@((?:\w+\.)*\w+(?:\w+\-\w+)*\.\w+(?:/\w+)+)!',
+        if (preg_match_all('!(?:^|\s+)@((?:\w+\.)*\w+(?:\w+\-\w+)*\.\w+(?:/\w+)*)!',
                        $text,
                        $wmatches,
                        PREG_OFFSET_CAPTURE)) {
@@ -324,10 +327,13 @@ class OStatusPlugin extends Plugin
                         $oprofile = Ostatus_profile::ensureProfileURL($url);
                         if ($oprofile instanceof Ostatus_profile && !$oprofile->isGroup()) {
                             $profile = $oprofile->localProfile();
+                            $text = !empty($profile->nickname) && mb_strlen($profile->nickname) < mb_strlen($target) ?
+                                    $profile->nickname : $target;
                             $matches[$pos] = array('mentioned' => array($profile),
                                                    'type' => 'mention',
-                                                   'text' => $target,
+                                                   'text' => $text,
                                                    'position' => $pos,
+                                                   'length' => mb_strlen($target),
                                                    'url' => $profile->getUrl());
                             break;
                         }
@@ -436,6 +442,17 @@ class OStatusPlugin extends Plugin
             }
         }
         return null;
+    }
+
+    function onEndProfileSettingsActions($out) {
+        $siteName = common_config('site', 'name');
+        $js = 'navigator.registerContentHandler("application/vnd.mozilla.maybe.feed", "'.addslashes(common_local_url('ostatussub', null, array('profile' => '%s'))).'", "'.addslashes($siteName).'")';
+        $out->elementStart('li');
+        $out->element('a',
+                      array('href' => 'javascript:'.$js),
+                      // TRANS: Option in profile settings to add this instance to Firefox as a feedreader
+                      _('Add to Firefox as feedreader'));
+        $out->elementEnd('li');
     }
 
     /**
@@ -1248,17 +1265,23 @@ class OStatusPlugin extends Plugin
     function onStartGetProfileFromURI($uri, &$profile)
     {
         // Don't want to do Web-based discovery on our own server,
-        // so we check locally first.
+        // so we check locally first. This duplicates the functionality
+        // in the Profile class, since the plugin always runs before
+        // that local lookup, but since we return false it won't run double.
 
         $user = User::getKV('uri', $uri);
-
-        if (!empty($user)) {
+        if ($user instanceof User) {
             $profile = $user->getProfile();
             return false;
+        } else {
+            $group = User_group::getKV('uri', $uri);
+            if ($group instanceof User_group) {
+                $profile = $group->getProfile();
+                return false;
+            }
         }
 
         // Now, check remotely
-
         try {
             $oprofile = Ostatus_profile::ensureProfileURI($uri);
             $profile = $oprofile->localProfile();
